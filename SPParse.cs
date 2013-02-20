@@ -1,7 +1,43 @@
 using System;
+using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.IO;
 using System.Data;
 using System.Data.SQLite;
+
+public class User{
+    public int UserId{get;set;}
+    public string Name{get;set;}
+    public Post[] Posts{get;set;}
+}
+
+public class Post{
+    public int PostId{get;set;}
+    public int UserId{get;set;}
+    public string Title{get;set;}
+    public string Body{get;set;}
+}
+
+public class ParserSettings<T>{
+    public ParserSettings<T> IncludeList<U>(
+        Expression<Func<T, IEnumerable<U>>> prop, int resultSetIdx){
+            // TODO
+        return this;
+    }
+}
+
+
+public class Parser<TRoot>{
+
+    public Parser(Action<ParserSettings<TRoot>> cfg){
+        var ps = new ParserSettings<TRoot>();
+        cfg(ps);
+    }
+
+    public IEnumerable<TRoot> Parse(IDataReader rdr){
+        yield break; // todo;
+    }
+}
 
 class Program{
     const string DbFileName = "testdb.db3";
@@ -27,11 +63,24 @@ INSERT INTO Post Values
         }
     }
 
+    static void ReadData(string dbName){
+        using(var conn = new SQLiteConnection(String.Format("Data Source={0};version=3", dbName))){
+            conn.Open();
+            using(var rdr = conn.ExecuteReader(@"
+SELECT UserId, Name FROM User;
+SELECT PostId, UserId, title, body FROM Post;
+                    ")){
+                var parser = new Parser<User>(_ => _.IncludeList(u => u.Posts, 1));
+                var usersWithPosts = parser.Parse(rdr);
+//                new DataContractJsonSerializer(typeof(User)).WriteObject(u
+            }
+        }
+    }
 
     static void Main(){
         try{
             PopulateDb(DbFileName);
-
+            ReadData(DbFileName);
 
         }catch(Exception e){
             Console.WriteLine(e);
