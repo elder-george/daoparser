@@ -5,3 +5,4 @@ syntax:glob
 **.pdb
 **.nupkg
 **.ps1
+**.db3
