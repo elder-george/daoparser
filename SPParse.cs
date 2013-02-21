@@ -29,7 +29,7 @@ public class Post{
 public class Comment{
     [DataMember] public int CommentId{get;set;}
     [DataMember] public int PostId{get;set;}
-    [DataMember] public int UserId{get;set;}
+    [DataMember] public int? UserId{get;set;}
     [DataMember] public string Title{get;set;}
     [DataMember] public string Body{get;set;}
 //    [DataMember] public User[] Authors{get;set;}    // degenerated case actually
@@ -140,7 +140,9 @@ public class ParserSettings<T>: IParserSettings where T:new(){
         Delegate convert;
 
         if (propType.IsValueType && propType.IsGenericType && propType.GetGenericTypeDefinition() == typeof(Nullable<>)){
-            convert = Delegate.CreateDelegate(convertType, this.GetType().GetMethod("ConvertNullable", BindingFlags.Static));
+            var valueType = propType.GetGenericArguments()[0];
+            convert = Delegate.CreateDelegate(convertType, 
+                                            this.GetType().GetMethod("ConvertNullable", BindingFlags.Static|BindingFlags.Public).MakeGenericMethod(valueType));
         } else {
             convert = Delegate.CreateDelegate(convertType, 
                 this.GetType().GetMethod("Convert", BindingFlags.Static|BindingFlags.Public)
@@ -349,7 +351,8 @@ INSERT INTO Post Values
 (1, 1, 2, 'Comment11', 'OP is fag'),
 (2, 2, 2, 'Comment12', 'OP is fag'),
 (3, 3, 1, 'Comment21', 'OP is fag'),
-(4, 4, 1, 'Comment22', 'OP is fag')
+(4, 4, 1, 'Comment22', 'OP is fag'),
+(5, 4, NULL, 'AnonymousComment', 'OP is still fag')
 ");
             conn.ExecuteNonQuery(@"INSERT INTO Avatar VALUES
 (1, 1, 100, 100, 'http://example.com/img1.png'),
