@@ -236,7 +236,7 @@ public class Parser<TRoot> where TRoot:new(){
     public Parser(Action<ParserSettings<TRoot>> cfg){
         var ps = new ParserSettings<TRoot>(0);
         cfg(ps);
-        _entityReaders = ps.CreateReaders().ToArray();
+        _entityReaders = ps.CreateReaders().ToLookup(r => r.ResultSetIndex).Select(g=>g.FirstOrDefault()).OrderBy(r=>r.ResultSetIndex).ToArray();
     }
 
     public IEnumerable<TRoot> Parse(IDataReader rdr){
