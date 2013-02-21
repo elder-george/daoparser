@@ -11,40 +11,6 @@ using System.Text;
 using System.Data.SQLite;
 
 
-[DataContract]
-public class User{
-    [DataMember] public int UserId{get;set;}
-    [DataMember] public string Name{get;set;}
-    [DataMember] public Post[] Posts{get;set;}
-    [DataMember] public Avatar Avatar{get;set;}
-}
-[DataContract]
-public class Post{
-    [DataMember] public int PostId{get;set;}
-    [DataMember] public int UserId{get;set;}
-    [DataMember] public string Title{get;set;}
-    [DataMember] public string Body{get;set;}
-    [DataMember] public Comment[] Comments{get;set;}
-}
-[DataContract]
-public class Comment{
-    [DataMember] public int CommentId{get;set;}
-    [DataMember] public int PostId{get;set;}
-    [DataMember] public int? UserId{get;set;}
-    [DataMember] public string Title{get;set;}
-    [DataMember] public string Body{get;set;}
-//    [DataMember] public User[] Authors{get;set;}    // degenerated case actually
-}
-
-[DataContract]
-public class Avatar{
-//    [DataMember] public int AvatarId{get;set;}
-    [DataMember] public int UserId{get;set;}
-    [DataMember] public string Uri{get;set;}
-    [DataMember] public int Width{get;set;}
-    [DataMember] public int Height{get;set;}
-}
-
 public interface IParserSettings{
     IEnumerable<IEntityReader> CreateReaders();
 }
@@ -339,6 +305,40 @@ public class Parser<TRoot> where TRoot:new(){
         }
         return _entityReaders[0].Rows.OfType<TRoot>();
     }
+}
+
+[DataContract]
+public class User{
+    [DataMember] public int UserId{get;set;}
+    [DataMember] public string Name{get;set;}
+    [DataMember] public Post[] Posts{get;set;}
+    [DataMember] public Avatar Avatar{get;set;}
+}
+[DataContract]
+public class Post{
+    [DataMember] public int PostId{get;set;}
+    [DataMember] public int UserId{get;set;}
+    [DataMember] public string Title{get;set;}
+    [DataMember] public string Body{get;set;}
+    [DataMember] public Comment[] Comments{get;set;}
+}
+[DataContract]
+public class Comment{
+    [DataMember] public int CommentId{get;set;}
+    [DataMember] public int PostId{get;set;}
+    [DataMember] public int? UserId{get;set;}
+    [DataMember] public string Title{get;set;}
+    [DataMember] public string Body{get;set;}
+//    [DataMember] public User[] Authors{get;set;}    // degenerated case actually
+}
+
+[DataContract]
+public class Avatar{
+//    [DataMember] public int AvatarId{get;set;}
+    [DataMember] public int UserId{get;set;}
+    [DataMember] public string Uri{get;set;}
+    [DataMember] public int Width{get;set;}
+    [DataMember] public int Height{get;set;}
 }
 
 class Program{
