@@ -16,6 +16,7 @@ public class User{
     [DataMember] public int UserId{get;set;}
     [DataMember] public string Name{get;set;}
     [DataMember] public Post[] Posts{get;set;}
+    [DataMember] public Avatar Avatar{get;set;}
 }
 [DataContract]
 public class Post{
@@ -33,6 +34,15 @@ public class Comment{
     [DataMember] public string Title{get;set;}
     [DataMember] public string Body{get;set;}
 //    [DataMember] public User[] Authors{get;set;}    // degenerated case actually
+}
+
+[DataContract]
+public class Avatar{
+//    [DataMember] public int AvatarId{get;set;}
+    [DataMember] public int UserId{get;set;}
+    [DataMember] public string Uri{get;set;}
+    [DataMember] public int Width{get;set;}
+    [DataMember] public int Height{get;set;}
 }
 
 public interface IParserSettings{
@@ -368,6 +378,7 @@ INSERT INTO Post Values
 SELECT UserId, Name FROM User;
 SELECT PostId, UserId, title, body FROM Post;
 SELECT CommentId, PostId, UserId, Title, Body FROM Comment;
+SELECT UserId, Width, Height, Uri from Avatar;
                     ")){
                 var parser = new Parser<User>(_ => {
                                     _.IncludeList(u => u.Posts,
@@ -378,14 +389,26 @@ SELECT CommentId, PostId, UserId, Title, Body FROM Comment;
                                                     u => u.UserId,
                                                     a => a.UserId, 3);
                                             //.IncludeList(c => c.Authors, c=>c.UserId, u=>u.UserId, 0)
-                                            );
+                                            });
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var usersWithPosts = parser.Parse(rdr).ToArray();
-                using (var str = new MemoryStream()){
-                    new DataContractJsonSerializer(typeof(User[])).WriteObject(str, usersWithPosts);
-                    Console.WriteLine(Encoding.UTF8.GetString(str.ToArray()));
-                }
+                Console.WriteLine(sw.ElapsedMilliseconds);
+
+                PrintCollectionJson(usersWithPosts);
+            }
+            using(var rdr = conn.ExecuteReader(@"SELECT * FROM Avatar")){
+                var avatarParser = new Parser<Avatar>( _ => {});
+                PrintCollectionJson(avatarParser.Parse(rdr).ToArray());
             }
         }
+    }
+
+    static void PrintCollectionJson<T>(T[] entities){
+        using (var str = new MemoryStream()){
+            new DataContractJsonSerializer(typeof(T[])).WriteObject(str, entities);
+           Console.WriteLine(Encoding.UTF8.GetString(str.ToArray()));
+           Console.WriteLine();
+        }        
     }
 
     static void Main(){
