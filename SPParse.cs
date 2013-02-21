@@ -149,6 +149,13 @@ public class ParserSettings<T>: IParserSettings where T:new(){
         var convertType = typeof(Func<,>).MakeGenericType(typeof(object), propType);
         Delegate convert;
 
+        var entityParam = Expression.Parameter(typeof(T));
+        var valueParam = Expression.Parameter(propType);
+        var setMethod = Expression.Lambda(actionType, 
+                            Expression.Assign(
+                                Expression.MakeMemberAccess(entityParam, prop),
+                                valueParam), new[]{entityParam,valueParam});
+
         if (propType.IsValueType && propType.IsGenericType && propType.GetGenericTypeDefinition() == typeof(Nullable<>)){
             var valueType = propType.GetGenericArguments()[0];
             convert = Delegate.CreateDelegate(convertType, 
