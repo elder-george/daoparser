@@ -64,6 +64,20 @@ public class ParserSettings<T>: IParserSettings where T:new(){
         return childSettings;
     }
 
+    public ParserSettings<U> IncludeSingle<U, TKey>(
+            Expression<Func<T, U>> prop, 
+            Expression<Func<T, TKey>> foreign,
+            Expression<Func<U, TKey>> primary, 
+            int resultSetIdx) where U:new(){
+        // It's basically the same as IncludeList excepting Expression argument. Need reduce duplication
+        var member = (MemberExpression)prop.Body;
+        var propInfo = (PropertyInfo)member.Member;
+        _resolvers[propInfo] = CreateResolver(prop, foreign, primary, resultSetIdx);
+        var childSettings = new ParserSettings<U>(resultSetIdx);
+        _includes.Add(childSettings); //TODO: if they go nested then overlaps are possible!!!
+        return childSettings;
+    }
+
     public void Ignore<U>(Expression<Func<T, U>> propExpr){
         var member = (MemberExpression) propExpr.Body;
         _ignores.Add((PropertyInfo)member.Member);
@@ -102,6 +116,21 @@ public class ParserSettings<T>: IParserSettings where T:new(){
             resultSetIdx);
     }
 
+    IIncludeResolver<T> CreateResolver<U, TKey>(
+            Expression<Func<T, U>> listProp, 
+            Expression<Func<T, TKey>> foreign,
+            Expression<Func<U, TKey>> primary, int resultSetIdx){
+        
+        var param = Expression.Parameter(typeof(U));
+        return new SingleIncludeResolver<T, U, TKey>(
+            Expression.Lambda<Action<T, U>>(
+                Expression.Assign(listProp.Body, param), 
+                new ParameterExpression[]{listProp.Parameters[0], param}).Compile(),
+            foreign.Compile(),
+            primary.Compile(),
+            resultSetIdx);
+    }
+
 
     IPropertySetter<T> CreateSetter(PropertyInfo prop){
         var propType = prop.PropertyType;
@@ -119,7 +148,10 @@ public class ParserSettings<T>: IParserSettings where T:new(){
         }
         return (IPropertySetter<T>)Activator.CreateInstance(
                     typeof(PropertySetter<,>).MakeGenericType(typeof(T), propType),
-                    new object[]{ set, convert, prop.Name}, 
+                    new object[]{ 
+                    setMethod.Compile(), 
+                    //set,
+                    convert, prop.Name}, 
                     null);
             
     }
@@ -165,6 +197,37 @@ class PropertySetter<T, U>: IPropertySetter<T>{
 
 interface IIncludeResolver<T>{
     void SetProperty(IEnumerable<T> entities, IList<IEntityReader> resultSets);
+}
+
+class SingleIncludeResolver<T, U, TKey>: IIncludeResolver<T>{
+    int _resultSetIdx;
+    Action<T, U> _set;
+    Func<T, TKey> _foreignSelector;
+    Func<U, TKey> _primarySelector;
+
+    public SingleIncludeResolver(Action<T, U> set,
+                            Func<T, TKey> foreignSelector,
+                            Func<U, TKey> primarySelector,
+                            int resultSetIdx){
+        _set = set; 
+        _foreignSelector = foreignSelector; 
+        _primarySelector = primarySelector; 
+        _resultSetIdx = resultSetIdx;
+    }
+    
+    public void SetProperty(IEnumerable<T> entities, IList<IEntityReader> resultSets){
+        var resultSet = resultSets[_resultSetIdx];
+        var childByKey = resultSet.Rows.OfType<U>()
+                            .ToLookup(r => _primarySelector(r));
+        foreach(var e in entities){
+            var foreign = _foreignSelector(e);
+            if (childByKey.Contains(foreign)){
+                _set(e, childByKey[foreign].Single());
+            } else {
+                Console.WriteLine("Object {0} with key {1} not found", typeof(U), foreign);
+            }
+        }
+    }
 }
 
 class IncludeResolver<T, U, TKey>:IIncludeResolver<T>{
@@ -272,6 +335,7 @@ class Program{
             conn.ExecuteNonQuery("CREATE TABLE User ( UserId int, Name varchar(100))");
             conn.ExecuteNonQuery("CREATE TABLE Post ( PostId int, UserId int, Title varchar(100), Body varchar(1000))");
             conn.ExecuteNonQuery("CREATE TABLE Comment ( CommentId int, PostId int, UserId int, Title varchar(100), Body varchar(1000))");
+            conn.ExecuteNonQuery("CREATE TABLE Avatar ( AvatarId int, UserId int, Width int, Height int, Uri varchar(1000))");
 
             conn.ExecuteNonQuery("INSERT INTO User Values (1, 'User1'), (2, 'User2')");
 
@@ -287,7 +351,10 @@ INSERT INTO Post Values
 (3, 3, 1, 'Comment21', 'OP is fag'),
 (4, 4, 1, 'Comment22', 'OP is fag')
 ");
-
+            conn.ExecuteNonQuery(@"INSERT INTO Avatar VALUES
+(1, 1, 100, 100, 'http://example.com/img1.png'),
+(2, 2, 100, 100, 'http://example.com/img2.png')
+");
         }
     }
 
@@ -299,11 +366,14 @@ SELECT UserId, Name FROM User;
 SELECT PostId, UserId, title, body FROM Post;
 SELECT CommentId, PostId, UserId, Title, Body FROM Comment;
                     ")){
-                var parser = new Parser<User>(_ => 
+                var parser = new Parser<User>(_ => {
                                     _.IncludeList(u => u.Posts,
                                                   u => u.UserId,
                                                   p => p.UserId, 1)
-                                        .IncludeList(p => p.Comments, p=>p.PostId, c=>c.PostId, 2)
+                                        .IncludeList(p => p.Comments, p=>p.PostId, c=>c.PostId, 2);
+                                    _.IncludeSingle(u => u.Avatar,
+                                                    u => u.UserId,
+                                                    a => a.UserId, 3);
                                             //.IncludeList(c => c.Authors, c=>c.UserId, u=>u.UserId, 0)
                                             );
                 var usersWithPosts = parser.Parse(rdr).ToArray();
