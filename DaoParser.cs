@@ -178,63 +178,58 @@ namespace DaoParser {
         void SetProperty(IEnumerable<T> entities, IList<IEntityReader> resultSets);
     }
 
-    class SingleIncludeResolver<T, U, TKey>: IIncludeResolver<T>{
+    abstract class IncludeResolverBase<TParent, TProperty, TChild, TKey>: IIncludeResolver<TParent>{
         int _resultSetIdx;
-        Action<T, U> _set;
-        Func<T, TKey> _foreignSelector;
-        Func<U, TKey> _primarySelector;
+        Action<TParent, TProperty> _set;
+        Func<TParent, TKey> _foreignSelector;
+        Func<TChild, TKey> _primarySelector;
 
-        public SingleIncludeResolver(Action<T, U> set,
-                                Func<T, TKey> foreignSelector,
-                                Func<U, TKey> primarySelector,
-                                int resultSetIdx){
-            _set = set; 
-            _foreignSelector = foreignSelector; 
-            _primarySelector = primarySelector; 
+        public IncludeResolverBase(Action<TParent, TProperty> set,
+                Func<TParent, TKey> foreignSelector,
+                Func<TChild, TKey> primarySelector,
+                int resultSetIdx){
+            _set = set;
+            _foreignSelector = foreignSelector;
+            _primarySelector = primarySelector;
             _resultSetIdx = resultSetIdx;
         }
-    
-        public void SetProperty(IEnumerable<T> entities, IList<IEntityReader> resultSets){
+        public void SetProperty(IEnumerable<TParent> entities, IList<IEntityReader> resultSets){
             var resultSet = resultSets[_resultSetIdx];
-            var childByKey = resultSet.Rows.OfType<U>()
+            var childByKey = resultSet.Rows.OfType<TChild>()
                                 .ToLookup(r => _primarySelector(r));
             foreach(var e in entities){
                 var foreign = _foreignSelector(e);
                 if (childByKey.Contains(foreign)){
-                    _set(e, childByKey[foreign].Single());
-                } else {
-                    Console.WriteLine("Object {0} with key {1} not found", typeof(U), foreign);
+                    _set(e, AdaptToProperty(childByKey[foreign]));
                 }
             }
         }
+        protected abstract TProperty AdaptToProperty(IEnumerable<TChild> matchingEntities);
     }
 
-    class IncludeResolver<T, U, TKey>:IIncludeResolver<T>{
-        int _resultSetIdx;
-        Action<T, U[]> _set;
-        Func<T, TKey> _foreignSelector;
-        Func<U, TKey> _primarySelector;
-
-        public IncludeResolver(Action<T, U[]> set,
-                                Func<T, TKey> foreignSelector,
-                                Func<U, TKey> primarySelector,
-                                int resultSetIdx){
-            _set = set; 
-            _foreignSelector = foreignSelector; 
-            _primarySelector = primarySelector; 
-            _resultSetIdx = resultSetIdx;
+    class SingleIncludeResolver<TParent, TChild, TKey>: IncludeResolverBase<TParent, TChild, TChild, TKey>{    
+        public SingleIncludeResolver(Action<TParent, TChild> set,
+                Func<TParent, TKey> foreignSelector,
+                Func<TChild, TKey> primarySelector,
+                int resultSetIdx):
+            base(set, foreignSelector, primarySelector, resultSetIdx)
+        {}
+        
+        protected override TChild AdaptToProperty(IEnumerable<TChild> matchingEntities){
+            return matchingEntities.Single();
         }
+    }
 
-        public void SetProperty(IEnumerable<T> entities, IList<IEntityReader> resultSets){
-            var resultSet = resultSets[_resultSetIdx];
-            var childByKey = resultSet.Rows.OfType<U>()
-                            .ToLookup(r => _primarySelector(r));
-            foreach(var e in entities){
-                var foreign = _foreignSelector(e);
-                if (childByKey.Contains(foreign)){
-                    _set(e, childByKey[foreign].ToArray());
-                } 
-            }
+    class IncludeResolver<TParent, TChild, TKey>:IncludeResolverBase<TParent, TChild[], TChild, TKey>{
+        public IncludeResolver(Action<TParent, TChild[]> set,
+                                Func<TParent, TKey> foreignSelector,
+                                Func<TChild, TKey> primarySelector,
+                                int resultSetIdx):
+            base(set, foreignSelector, primarySelector, resultSetIdx)
+        {}
+
+        protected override TChild[] AdaptToProperty(IEnumerable<TChild> matchingEntities){
+            return matchingEntities.ToArray();
         }
     }
 
