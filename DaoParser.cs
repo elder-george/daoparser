@@ -6,6 +6,8 @@ using System.Data;
 using System.Reflection;
 
 
+namespace DaoParser {
+
 public interface IParserSettings{
     IEnumerable<IEntityReader> CreateReaders();
 }
@@ -300,4 +302,6 @@ public class Parser<TRoot> where TRoot:new(){
         }
         return _entityReaders[0].Rows.OfType<TRoot>();
     }
+}
+
 }
