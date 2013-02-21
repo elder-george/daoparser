@@ -263,6 +263,7 @@ class Program{
             conn.Open();
             conn.ExecuteNonQuery("CREATE TABLE User ( UserId int, Name varchar(100))");
             conn.ExecuteNonQuery("CREATE TABLE Post ( PostId int, UserId int, Title varchar(100), Body varchar(1000))");
+            conn.ExecuteNonQuery("CREATE TABLE Comment ( CommentId int, PostId int, UserId int, Title varchar(100), Body varchar(1000))");
 
             conn.ExecuteNonQuery("INSERT INTO User Values (1, 'User1'), (2, 'User2')");
 
@@ -272,6 +273,13 @@ INSERT INTO Post Values
 (2, 1, 'Post12', 'Long text 12'),
 (3, 2, 'Post21', 'Long text 21'),
 (4, 2, 'Post22', 'Long text 22')");
+            conn.ExecuteNonQuery(@"INSERT INTO Comment VALUES
+(1, 1, 2, 'Comment11', 'OP is fag'),
+(2, 2, 2, 'Comment12', 'OP is fag'),
+(3, 3, 1, 'Comment21', 'OP is fag'),
+(4, 4, 1, 'Comment22', 'OP is fag')
+");
+
         }
     }
 
@@ -281,11 +289,15 @@ INSERT INTO Post Values
             using(var rdr = conn.ExecuteReader(@"
 SELECT UserId, Name FROM User;
 SELECT PostId, UserId, title, body FROM Post;
+SELECT CommentId, PostId, UserId, Title, Body FROM Comment;
                     ")){
                 var parser = new Parser<User>(_ => 
                                     _.IncludeList(u => u.Posts,
                                                   u => u.UserId,
-                                                  p => p.UserId, 1));
+                                                  p => p.UserId, 1)
+                                        .IncludeList(p => p.Comments, p=>p.PostId, c=>c.PostId, 2)
+                                            //.IncludeList(c => c.Authors, c=>c.UserId, u=>u.UserId, 0)
+                                            );
                 var usersWithPosts = parser.Parse(rdr).ToArray();
                 using (var str = new MemoryStream()){
                     new DataContractJsonSerializer(typeof(User[])).WriteObject(str, usersWithPosts);
