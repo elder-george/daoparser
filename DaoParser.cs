@@ -79,12 +79,13 @@ namespace DaoParser {
                 Expression<Func<U, TKey>> primary, int resultSetIdx){
         
             var param = Expression.Parameter(typeof(U[]));
-            return new IncludeResolver<T, U, TKey>(
+            return new IncludeResolver<T, U[], U, TKey>(
                 Expression.Lambda<Action<T, U[]>>(
                     Expression.Assign(listProp.Body, param), 
                     new ParameterExpression[]{listProp.Parameters[0], param}).Compile(),
                 foreign.Compile(),
                 primary.Compile(),
+                children => children.ToArray(),
                 resultSetIdx);
         }
 
@@ -94,12 +95,13 @@ namespace DaoParser {
                 Expression<Func<U, TKey>> primary, int resultSetIdx){
         
             var param = Expression.Parameter(typeof(U));
-            return new SingleIncludeResolver<T, U, TKey>(
+            return new IncludeResolver<T, U, U, TKey>(
                 Expression.Lambda<Action<T, U>>(
                     Expression.Assign(listProp.Body, param), 
                     new ParameterExpression[]{listProp.Parameters[0], param}).Compile(),
                 foreign.Compile(),
                 primary.Compile(),
+                children => children.Single(),
                 resultSetIdx);
         }
 
@@ -178,19 +180,22 @@ namespace DaoParser {
         void SetProperty(IEnumerable<T> entities, IList<IEntityReader> resultSets);
     }
 
-    abstract class IncludeResolverBase<TParent, TProperty, TChild, TKey>: IIncludeResolver<TParent>{
+    class IncludeResolver<TParent, TProperty, TChild, TKey>: IIncludeResolver<TParent>{
         int _resultSetIdx;
         Action<TParent, TProperty> _set;
         Func<TParent, TKey> _foreignSelector;
         Func<TChild, TKey> _primarySelector;
+        Func<IEnumerable<TChild>, TProperty> _adapt;
 
-        public IncludeResolverBase(Action<TParent, TProperty> set,
+        public IncludeResolver(Action<TParent, TProperty> set,
                 Func<TParent, TKey> foreignSelector,
                 Func<TChild, TKey> primarySelector,
+                Func<IEnumerable<TChild>, TProperty> adapt,
                 int resultSetIdx){
             _set = set;
             _foreignSelector = foreignSelector;
             _primarySelector = primarySelector;
+            _adapt = adapt;
             _resultSetIdx = resultSetIdx;
         }
         public void SetProperty(IEnumerable<TParent> entities, IList<IEntityReader> resultSets){
@@ -200,36 +205,9 @@ namespace DaoParser {
             foreach(var e in entities){
                 var foreign = _foreignSelector(e);
                 if (childByKey.Contains(foreign)){
-                    _set(e, AdaptToProperty(childByKey[foreign]));
+                    _set(e, _adapt(childByKey[foreign]));
                 }
             }
-        }
-        protected abstract TProperty AdaptToProperty(IEnumerable<TChild> matchingEntities);
-    }
-
-    class SingleIncludeResolver<TParent, TChild, TKey>: IncludeResolverBase<TParent, TChild, TChild, TKey>{    
-        public SingleIncludeResolver(Action<TParent, TChild> set,
-                Func<TParent, TKey> foreignSelector,
-                Func<TChild, TKey> primarySelector,
-                int resultSetIdx):
-            base(set, foreignSelector, primarySelector, resultSetIdx)
-        {}
-        
-        protected override TChild AdaptToProperty(IEnumerable<TChild> matchingEntities){
-            return matchingEntities.Single();
-        }
-    }
-
-    class IncludeResolver<TParent, TChild, TKey>:IncludeResolverBase<TParent, TChild[], TChild, TKey>{
-        public IncludeResolver(Action<TParent, TChild[]> set,
-                                Func<TParent, TKey> foreignSelector,
-                                Func<TChild, TKey> primarySelector,
-                                int resultSetIdx):
-            base(set, foreignSelector, primarySelector, resultSetIdx)
-        {}
-
-        protected override TChild[] AdaptToProperty(IEnumerable<TChild> matchingEntities){
-            return matchingEntities.ToArray();
         }
     }
 
