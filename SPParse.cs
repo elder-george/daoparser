@@ -43,22 +43,30 @@ public class ParserSettings<T>: IParserSettings where T:new(){
     IDictionary<PropertyInfo, IIncludeResolver<T>> _resolvers = new Dictionary<PropertyInfo, IIncludeResolver<T>>();
 
     IList<IParserSettings> _includes = new List<IParserSettings>();
+
+    HashSet<PropertyInfo> _ignores = new HashSet<PropertyInfo>();
     int _resultSetIdx;
 
     public ParserSettings(int resultSetIdx){
         _resultSetIdx  = resultSetIdx;
     }
 
-    public ParserSettings<T> IncludeList<U, TKey>(
+    public ParserSettings<U> IncludeList<U, TKey>(
             Expression<Func<T, U[]>> listProp, 
             Expression<Func<T, TKey>> foreign,
             Expression<Func<U, TKey>> primary, 
             int resultSetIdx) where U:new(){
         var member = (MemberExpression)listProp.Body;
         var prop = (PropertyInfo)member.Member;
-        _resolvers[prop] = CreateResolver(listProp, foreign, primary);
-        _includes.Add(new ParserSettings<U>(_resultSetIdx+1)); //TODO: if they go nested then overlaps are possible!!!
-        return this;
+        _resolvers[prop] = CreateResolver(listProp, foreign, primary, resultSetIdx);
+        var childSettings = new ParserSettings<U>(resultSetIdx);
+        _includes.Add(childSettings); //TODO: if they go nested then overlaps are possible!!!
+        return childSettings;
+    }
+
+    public void Ignore<U>(Expression<Func<T, U>> propExpr){
+        var member = (MemberExpression) propExpr.Body;
+        _ignores.Add((PropertyInfo)member.Member);
     }
 
     public IEnumerable<IEntityReader> CreateReaders(){
@@ -66,10 +74,10 @@ public class ParserSettings<T>: IParserSettings where T:new(){
         var setters = new List<IPropertySetter<T>>();
         var resolvers = new List<IIncludeResolver<T>>();
         foreach(var prop in typeof(T).GetProperties()){
-            if (!_resolvers.ContainsKey(prop)){
-                setters.Add(CreateSetter(prop));
-            } else {
+            if (_resolvers.ContainsKey(prop)){
                 resolvers.Add(_resolvers[prop]);
+            } else if (!_ignores.Contains(prop)){
+                setters.Add(CreateSetter(prop));
             }
         }
         readers.Add(new EntityReader<T>(resolvers, setters, _resultSetIdx));
@@ -82,7 +90,7 @@ public class ParserSettings<T>: IParserSettings where T:new(){
     IIncludeResolver<T> CreateResolver<U, TKey>(
             Expression<Func<T, U[]>> listProp, 
             Expression<Func<T, TKey>> foreign,
-            Expression<Func<U, TKey>> primary){
+            Expression<Func<U, TKey>> primary, int resultSetIdx){
         
         var param = Expression.Parameter(typeof(U[]));
         return new IncludeResolver<T, U, TKey>(
@@ -91,7 +99,7 @@ public class ParserSettings<T>: IParserSettings where T:new(){
                 new ParameterExpression[]{listProp.Parameters[0], param}).Compile(),
             foreign.Compile(),
             primary.Compile(),
-            _resultSetIdx+1);
+            resultSetIdx);
     }
 
 
@@ -151,7 +159,6 @@ class PropertySetter<T, U>: IPropertySetter<T>{
     }
 
     public void SetValue(T entity, IDataReader reader){
-        Console.WriteLine("Reading property {0}", _propertyName);
         _set(entity, _convert(reader[_propertyName]));
     }
 }
@@ -185,7 +192,7 @@ class IncludeResolver<T, U, TKey>:IIncludeResolver<T>{
             var foreign = _foreignSelector(e);
             if (childByKey.Contains(foreign)){
                 _set(e, childByKey[foreign].ToArray());
-            }
+            } 
         }
     }
 }
@@ -245,9 +252,10 @@ public class Parser<TRoot> where TRoot:new(){
             resultSetIdx++;
         }while(rdr.NextResult());
 
-        var root = _entityReaders[0];
-        root.ResolveIncludes(_entityReaders);
-        return root.Rows.OfType<TRoot>();
+        foreach(var reader in _entityReaders){
+            reader.ResolveIncludes(_entityReaders);
+        }
+        return _entityReaders[0].Rows.OfType<TRoot>();
     }
 }
 
