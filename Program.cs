@@ -15,6 +15,7 @@ public class User{
     [DataMember] public string Name{get;set;}
     [DataMember] public Post[] Posts{get;set;}
     [DataMember] public Avatar Avatar{get;set;}
+    [DataMember] public int? SessionNumberDoNotSave{get;set;}
 }
 [DataContract]
 public class Post{
@@ -90,6 +91,7 @@ SELECT CommentId, PostId, UserId, Title, Body FROM Comment;
 SELECT UserId, Width, Height, Uri from Avatar;
                     ")){
                 var parser = new Parser<User>(_ => {
+                                    _.IgnoreAllMisses();
                                     _.IncludeList(u => u.Posts,
                                                   u => u.UserId,
                                                   p => p.UserId, 1)
