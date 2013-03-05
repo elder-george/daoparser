@@ -151,9 +151,8 @@ namespace DaoParser {
 
     public interface IEntityReader{
         int ResultSetIndex{get;}
-        void ReadRow(IDataReader rdr);
-        void ResolveIncludes(IList<IEntityReader> resultSets);
-        IEnumerable<Object> Rows{get;}
+        object ReadRow(IDataReader rdr);
+        void ResolveIncludes(IList<IList<object>> resultSets);
     }
 
     interface IPropertySetter<T>{
@@ -177,7 +176,7 @@ namespace DaoParser {
     }
 
     interface IIncludeResolver<T>{
-        void SetProperty(IEnumerable<T> entities, IList<IEntityReader> resultSets);
+        void SetProperty(IEnumerable<T> entities, IList<IList<object>> resultSets);
     }
 
     class IncludeResolver<TParent, TProperty, TChild, TKey>: IIncludeResolver<TParent>{
@@ -198,9 +197,9 @@ namespace DaoParser {
             _adapt = adapt;
             _resultSetIdx = resultSetIdx;
         }
-        public void SetProperty(IEnumerable<TParent> entities, IList<IEntityReader> resultSets){
+        public void SetProperty(IEnumerable<TParent> entities, IList<IList<object>> resultSets){
             var resultSet = resultSets[_resultSetIdx];
-            var childByKey = resultSet.Rows.OfType<TChild>()
+            var childByKey = resultSet.OfType<TChild>()
                                 .ToLookup(r => _primarySelector(r));
             foreach(var e in entities){
                 var foreign = _foreignSelector(e);
@@ -212,7 +211,6 @@ namespace DaoParser {
     }
 
     class EntityReader<T>:IEntityReader where T: new(){
-        IList<T> _rows = new List<T>();
         IList<IIncludeResolver<T>> _resolvers;
         IList<IPropertySetter<T>> _setters;
 
@@ -226,19 +224,19 @@ namespace DaoParser {
             ResultSetIndex = resultSetIndex;
         }
 
-        public void ReadRow(IDataReader rdr){
+        public object ReadRow(IDataReader rdr){
             var entity = new T();
             foreach(var setter in _setters){
                 setter.SetValue(entity, rdr);
             }
-            _rows.Add(entity);
+            return entity;
         }
-        public void ResolveIncludes(IList<IEntityReader> resultSets){
+        public void ResolveIncludes(IList<IList<object>> resultSets){
+            var rows = resultSets[ResultSetIndex].OfType<T>();
             foreach(var resolver in _resolvers){
-                resolver.SetProperty(_rows, resultSets);
+                resolver.SetProperty(rows, resultSets);
             }
         }
-        public IEnumerable<Object> Rows{get{ return (IEnumerable<Object>)_rows; }}
     }
 
 
@@ -253,21 +251,24 @@ namespace DaoParser {
 
         public IEnumerable<TRoot> Parse(IDataReader rdr){
             var resultSetIdx = 0;
+            var parsedRowSets = new List<IList<object>>(_entityReaders.Count);
             
             do {
                 var er = _entityReaders[resultSetIdx];
                 if (er != null){
+                    var rowset = new List<Object>();
                     while(rdr.Read()){
-                        er.ReadRow(rdr);
+                        rowset.Add(er.ReadRow(rdr));
                     }
+                    parsedRowSets.Add(rowset);
                 }
                 resultSetIdx++;
             }while(rdr.NextResult());
 
             foreach(var reader in _entityReaders){
-                reader.ResolveIncludes(_entityReaders);
+                reader.ResolveIncludes(parsedRowSets);
             }
-            return _entityReaders[0].Rows.OfType<TRoot>();
+            return parsedRowSets[0].OfType<TRoot>();
         }
     }
 }
