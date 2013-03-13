@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Runtime.Serialization;
@@ -82,15 +83,18 @@ INSERT INTO Post Values
     }
 
     static void ReadData(string dbName){
-        using(var conn = new SQLiteConnection(String.Format("Data Source={0};version=3", dbName))){
-            conn.Open();
-            using(var rdr = conn.ExecuteReader(@"
+        using (var tm = new TimeMeasure()){
+            using(var conn = new SQLiteConnection(String.Format("Data Source={0};version=3", dbName))){
+                conn.Open();
+                tm.MarkEnd("Connection.Open");
+                using(var rdr = conn.ExecuteReader(@"
 SELECT UserId, Name FROM User;
 SELECT PostId, UserId, title, body FROM Post;
 SELECT CommentId, PostId, UserId, Title, Body FROM Comment;
 SELECT UserId, Width, Height, Uri from Avatar;
                     ")){
-                var parser = new Parser<User>(_ => {
+                    tm.MarkEnd("ExecuteReader 1");
+                    var parser = new Parser<User>(_ => {
                                     _.IgnoreAllMisses();
                                     _.IncludeList(u => u.Posts,
                                                   u => u.UserId,
@@ -101,15 +105,22 @@ SELECT UserId, Width, Height, Uri from Avatar;
                                                     a => a.UserId, 3);
                                             //.IncludeList(c => c.Authors, c=>c.UserId, u=>u.UserId, 0)
                                             });
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                var usersWithPosts = parser.Parse(rdr).ToArray();
-                Console.WriteLine(sw.ElapsedMilliseconds);
+                    tm.MarkEnd("Create Parser 1");
+                    var usersWithPosts = parser.Parse(rdr).ToArray();
+                    tm.MarkEnd("Parse");
 
-                PrintCollectionJson(usersWithPosts);
-            }
-            using(var rdr = conn.ExecuteReader(@"SELECT * FROM Avatar")){
-                var avatarParser = new Parser<Avatar>( _ => {});
-                PrintCollectionJson(avatarParser.Parse(rdr).ToArray());
+                    PrintCollectionJson(usersWithPosts);
+                    tm.MarkEnd("Print Collection 1");
+                }
+                using(var rdr = conn.ExecuteReader(@"SELECT * FROM Avatar")){
+                    tm.MarkEnd("Execute Reader 2");
+                    var avatarParser = new Parser<Avatar>( _ => {});
+                    tm.MarkEnd("Create Parser 2");
+                    var avatars = avatarParser.Parse(rdr).ToArray();
+                    tm.MarkEnd("Parse");
+                    PrintCollectionJson(avatars);
+                    tm.MarkEnd("Print Collection 2");
+                }
             }
         }
     }
@@ -130,6 +141,29 @@ SELECT UserId, Width, Height, Uri from Avatar;
         }catch(Exception e){
             Console.WriteLine(e);
         }
+    }
+}
+
+class TimeMeasure: IDisposable{
+    readonly System.Diagnostics.Stopwatch _sw = System.Diagnostics.Stopwatch.StartNew();
+    IList<KeyValuePair<string, long>> _marks = new List<KeyValuePair<string, long>>();
+    bool _isDisposed;
+
+    public void MarkEnd(string operationName){
+        _marks.Add(new KeyValuePair<string, long>(operationName, _sw.ElapsedMilliseconds));
+    }
+
+    void IDisposable.Dispose(){
+        if (_isDisposed) throw new ObjectDisposedException("Object already disposed");
+        _isDisposed = true;
+        _sw.Stop();
+        long prev = 0;
+        for (var i = 0; i < _marks.Count; i++){
+            var operationLength = _marks[i].Value - prev;
+            Console.WriteLine("{0}:{1}", _marks[i].Key, operationLength);
+            prev = _marks[i].Value;
+        }
+        Console.WriteLine("Total: {0}", _sw.ElapsedMilliseconds);
     }
 }
 
