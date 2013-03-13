@@ -9,7 +9,7 @@ using System.Reflection;
 namespace DaoParser {
     
     public interface IParserSettings{
-        IEnumerable<IEntityReader> CreateReaders();
+        IEnumerable<IEntityReaderTemplate> CreateReaderTemplates();
     }
 
     public class ParserSettings<T>: IParserSettings where T:new(){
@@ -60,20 +60,20 @@ namespace DaoParser {
             _ignores.Add((PropertyInfo)member.Member);
         }
 
-        public IEnumerable<IEntityReader> CreateReaders(){
-            var readers = new List<IEntityReader>();
-            var setters = new List<IPropertySetter<T>>();
+        public IEnumerable<IEntityReaderTemplate> CreateReaderTemplates(){
+            var readers = new List<IEntityReaderTemplate>();
+            var setters = new List<IPropertySetterTemplate<T>>();
             var resolvers = new List<IIncludeResolver<T>>();
             foreach(var prop in typeof(T).GetProperties()){
                 if (_resolvers.ContainsKey(prop)){
                     resolvers.Add(_resolvers[prop]);
                 } else if (!_ignores.Contains(prop)){
-                    setters.Add(CreateSetter(prop));
+                    setters.Add(CreateSetterTemplate(prop));
                 }
             }
-            readers.Add(new EntityReader<T>(resolvers, setters, _resultSetIdx));
+            readers.Add(new EntityReaderTemplate<T>(resolvers, setters, _resultSetIdx));
             foreach(var include in _includes){
-                readers.AddRange(include.CreateReaders());
+                readers.AddRange(include.CreateReaderTemplates());
             }
             return readers;
         }
@@ -111,19 +111,19 @@ namespace DaoParser {
         }
 
 
-        IPropertySetter<T> CreateSetter(PropertyInfo prop){
+        IPropertySetterTemplate<T> CreateSetterTemplate(PropertyInfo prop){
             var propType = prop.PropertyType;
             var actionType = typeof(Action<,>).MakeGenericType(typeof(T), propType);
             var set = Delegate.CreateDelegate(actionType,prop.GetSetMethod());
             var convertType = typeof(Func<,>).MakeGenericType(typeof(object), propType);
             Delegate convert;
 
-            var entityParam = Expression.Parameter(typeof(T));
+            /*var entityParam = Expression.Parameter(typeof(T));
             var valueParam = Expression.Parameter(propType);
             var setMethod = Expression.Lambda(actionType, 
                                 Expression.Assign(
                                     Expression.MakeMemberAccess(entityParam, prop),
-                                    valueParam), new[]{entityParam,valueParam});
+                                    valueParam), new[]{entityParam,valueParam});*/
 
             if (propType.IsValueType && propType.IsGenericType && propType.GetGenericTypeDefinition() == typeof(Nullable<>)){
                 var valueType = propType.GetGenericArguments()[0];
@@ -134,11 +134,11 @@ namespace DaoParser {
                     this.GetType().GetMethod("Convert", BindingFlags.Static|BindingFlags.Public)
                         .MakeGenericMethod(propType));
             }
-            return (IPropertySetter<T>)Activator.CreateInstance(
-                        typeof(PropertySetter<,>).MakeGenericType(typeof(T), propType),
+            return (IPropertySetterTemplate<T>)Activator.CreateInstance(
+                        typeof(PropertySetterTemplate<,>).MakeGenericType(typeof(T), propType),
                         new object[]{ 
-                        setMethod.Compile(), 
-                        //set,
+//                        setMethod.Compile(), 
+                        set,
                         convert, prop.Name, _ignoreAllMisses}, 
                         null);
         }
@@ -154,36 +154,67 @@ namespace DaoParser {
         }
     }
 
+    public interface IEntityReaderTemplate{
+        int ResultSetIndex{get;}
+        IEntityReader Specialize(IDataReader reader);
+    }
+
     public interface IEntityReader{
         int ResultSetIndex{get;}
-        object ReadRow(IDictionary<string,int> columns, IDataRecord row);
+        object ReadRow(IDataRecord row);
         void ResolveIncludes(IList<IList<object>> resultSets);
     }
 
-    interface IPropertySetter<T>{
-        void SetValue(T target, IDictionary<string, int> columns, IDataRecord row);
+    interface IPropertySetterTemplate<T>{
+        IPropertySetter<T> Specialize(IDictionary<string, int> columns);
     }
 
-    class PropertySetter<T, U>: IPropertySetter<T>{
+    class PropertySetterTemplate<T, U>: IPropertySetterTemplate<T>{
         Action<T, U> _set;
         Func<object, U> _convert;
         string _propertyName;
         bool _ignoreMisses;
 
-        public PropertySetter(Action<T, U> set, Func<object, U> convert, string propertyName, bool ignoreMisses){
+        public PropertySetterTemplate(Action<T, U> set, Func<object, U> convert, string propertyName, bool ignoreMisses){
             _set = set;
             _convert = convert;
             _propertyName = propertyName;
             _ignoreMisses = ignoreMisses;
         }
 
-        public void SetValue(T entity, IDictionary<string, int> columns, IDataRecord row){
+        public IPropertySetter<T> Specialize(IDictionary<string, int> columns){
             int idx;
-            if (columns.TryGetValue(_propertyName, out idx))
-                _set(entity, _convert(row[idx]));
-            else if (!_ignoreMisses){
-                throw new IndexOutOfRangeException(_propertyName);
-            }
+            if (columns.TryGetValue(_propertyName, out idx)){
+                return new PropertySetter<T,U>(_set, _convert, idx);
+            } else if (_ignoreMisses){
+                return new DummySetter<T>();
+            } else throw new ArgumentException("columns", String.Format("Column {0} is missing", _propertyName));
+        }
+    }
+
+    interface IPropertySetter<T>{
+        void SetValue(T target, IDataRecord row);
+    }
+
+    class DummySetter<T>: IPropertySetter<T>{
+        public void SetValue(T target, IDataRecord row){
+            /* DO NOTHING */
+        }
+    }
+
+    class PropertySetter<T, U>: IPropertySetter<T>{
+        Action<T, U> _set;
+        Func<object, U> _convert;
+        int _columnIndex;
+
+        public PropertySetter(Action<T, U> set, Func<object, U> convert, int columnIndex){
+            _set = set;
+            _convert = convert;
+            _columnIndex = columnIndex;
+        }
+
+        public void SetValue(T entity, IDataRecord row){
+            _set(entity, _convert(row[_columnIndex]));
         }
     }
 
@@ -222,6 +253,36 @@ namespace DaoParser {
         }
     }
 
+    class EntityReaderTemplate<T>: IEntityReaderTemplate where T:new(){
+        IList<IIncludeResolver<T>> _resolvers;
+        IList<IPropertySetterTemplate<T>> _setterTemplates;
+        public int ResultSetIndex{get; private set;}
+
+        public EntityReaderTemplate(IList<IIncludeResolver<T>> resolvers,
+                            IList<IPropertySetterTemplate<T>> setterTemplates, 
+                            int resultSetIndex){
+            _resolvers = resolvers;
+            _setterTemplates = setterTemplates;
+            ResultSetIndex = resultSetIndex;
+        }
+
+        public IEntityReader Specialize(IDataReader reader){
+            var dictionary = BuildColumnMapping(reader);
+
+            var setters = _setterTemplates.Select(st => st.Specialize(dictionary)).ToList();
+
+            return new EntityReader<T>(_resolvers, setters, ResultSetIndex);
+        }
+
+        IDictionary<string, int> BuildColumnMapping(IDataReader rdr){
+            var columns = new Dictionary<string, int>(rdr.FieldCount);
+            for(var i = 0; i < rdr.FieldCount; i++){
+                columns[rdr.GetName(i)] = i;
+            }
+            return columns;
+        }
+    }
+
     class EntityReader<T>:IEntityReader where T: new(){
         IList<IIncludeResolver<T>> _resolvers;
         IList<IPropertySetter<T>> _setters;
@@ -236,10 +297,10 @@ namespace DaoParser {
             ResultSetIndex = resultSetIndex;
         }
 
-        public object ReadRow(IDictionary<string, int> columns, IDataRecord row){
+        public object ReadRow(IDataRecord row){
             var entity = new T();
             foreach(var setter in _setters){
-                setter.SetValue(entity, columns, row);
+                setter.SetValue(entity, row);
             }
             return entity;
         }
@@ -252,40 +313,36 @@ namespace DaoParser {
     }
 
     public class Parser<TRoot> where TRoot:new(){
-        IList<IEntityReader> _entityReaders;
+        IList<IEntityReaderTemplate> _entityReaderTemplates;
 
         public Parser(Action<ParserSettings<TRoot>> cfg){
             var ps = new ParserSettings<TRoot>(0);
             cfg(ps);
-            _entityReaders = ps.CreateReaders().ToLookup(r => r.ResultSetIndex).Select(g=>g.FirstOrDefault()).OrderBy(r=>r.ResultSetIndex).ToArray();
-        }
-
-        IDictionary<string, int> BuildColumnMapping(IDataReader rdr){
-            var columns = new Dictionary<string, int>(rdr.FieldCount);
-            for(var i = 0; i < rdr.FieldCount; i++){
-                columns[rdr.GetName(i)] = i;
-            }
-            return columns;
+            _entityReaderTemplates = ps.CreateReaderTemplates()
+                                        .ToLookup(r => r.ResultSetIndex)
+                                        .Select(g=>g.FirstOrDefault()).OrderBy(r=>r.ResultSetIndex).ToArray();
         }
 
         public IEnumerable<TRoot> Parse(IDataReader rdr){
             var resultSetIdx = 0;
-            var parsedRowSets = new List<IList<object>>(_entityReaders.Count);
+            var parsedRowSets = new List<IList<object>>(_entityReaderTemplates.Count);
             
+            var readers = new List<IEntityReader>(_entityReaderTemplates.Count);
             do {
-                var columns = BuildColumnMapping(rdr);
-                var er = _entityReaders[resultSetIdx];
-                if (er != null){
+                var ert = _entityReaderTemplates[resultSetIdx];
+                if (ert != null){
+                    var er = ert.Specialize(rdr);
+                    readers.Add(er);
                     var rowset = new List<Object>();
                     while(rdr.Read()){
-                        rowset.Add(er.ReadRow(columns, rdr));
+                        rowset.Add(er.ReadRow(rdr));
                     }
                     parsedRowSets.Add(rowset);
                 }
                 resultSetIdx++;
             }while(rdr.NextResult());
 
-            foreach(var reader in _entityReaders){
+            foreach(var reader in readers){
                 reader.ResolveIncludes(parsedRowSets);
             }
             return parsedRowSets[0].OfType<TRoot>();
