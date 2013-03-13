@@ -84,42 +84,53 @@ INSERT INTO Post Values
 
     static void ReadData(string dbName){
         using (var tm = new TimeMeasure()){
+            var usersParser = new Parser<User>(_ => {
+                            _.IgnoreAllMisses();
+                            _.IncludeList(u => u.Posts,
+                                          u => u.UserId,
+                                          p => p.UserId, 1)
+                                .IncludeList(p => p.Comments, p=>p.PostId, c=>c.PostId, 2);
+                            _.IncludeSingle(u => u.Avatar,
+                                            u => u.UserId,
+                                            a => a.UserId, 3);
+                                    //.IncludeList(c => c.Authors, c=>c.UserId, u=>u.UserId, 0)
+                                    });
+            tm.MarkEnd("Create Parser 1");
+            var avatarParser = new Parser<Avatar>( _ => {});
+            tm.MarkEnd("Create Parser 2");
+
+
             using(var conn = new SQLiteConnection(String.Format("Data Source={0};version=3", dbName))){
                 conn.Open();
                 tm.MarkEnd("Connection.Open");
-                using(var rdr = conn.ExecuteReader(@"
+                const int ReadNumber = 100;
+                for (var i = 0; i < ReadNumber; i++){
+                    using(var rdr = conn.ExecuteReader(@"
 SELECT UserId, Name FROM User;
 SELECT PostId, UserId, title, body FROM Post;
 SELECT CommentId, PostId, UserId, Title, Body FROM Comment;
 SELECT UserId, Width, Height, Uri from Avatar;
-                    ")){
-                    tm.MarkEnd("ExecuteReader 1");
-                    var parser = new Parser<User>(_ => {
-                                    _.IgnoreAllMisses();
-                                    _.IncludeList(u => u.Posts,
-                                                  u => u.UserId,
-                                                  p => p.UserId, 1)
-                                        .IncludeList(p => p.Comments, p=>p.PostId, c=>c.PostId, 2);
-                                    _.IncludeSingle(u => u.Avatar,
-                                                    u => u.UserId,
-                                                    a => a.UserId, 3);
-                                            //.IncludeList(c => c.Authors, c=>c.UserId, u=>u.UserId, 0)
-                                            });
-                    tm.MarkEnd("Create Parser 1");
-                    var usersWithPosts = parser.Parse(rdr).ToArray();
-                    tm.MarkEnd("Parse");
-
-                    PrintCollectionJson(usersWithPosts);
-                    tm.MarkEnd("Print Collection 1");
+                        ")){
+                        tm.MarkEnd("ExecuteReader 1-"+i);
+                        var usersWithPosts = usersParser.Parse(rdr).ToArray();
+                        tm.MarkEnd("Parse");
+                        if (i == ReadNumber - 1){
+                            PrintCollectionJson(usersWithPosts);
+                            tm.MarkEnd("Print Collection 1");
+                        }
+                    }
                 }
-                using(var rdr = conn.ExecuteReader(@"SELECT * FROM Avatar")){
-                    tm.MarkEnd("Execute Reader 2");
-                    var avatarParser = new Parser<Avatar>( _ => {});
-                    tm.MarkEnd("Create Parser 2");
-                    var avatars = avatarParser.Parse(rdr).ToArray();
-                    tm.MarkEnd("Parse");
-                    PrintCollectionJson(avatars);
-                    tm.MarkEnd("Print Collection 2");
+
+                for (var i = 0; i < ReadNumber; i++){
+                    using(var rdr = conn.ExecuteReader(@"SELECT * FROM Avatar")){
+                        tm.MarkEnd("Execute Reader 2-"+i);
+                        var avatars = avatarParser.Parse(rdr).ToArray();
+                        tm.MarkEnd("Parse");
+                        if (i == ReadNumber - 1){
+                            PrintCollectionJson(avatars);
+                            tm.MarkEnd("Print Collection 2");
+                        }
+                    }
                 }
             }
         }
