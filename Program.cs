@@ -24,7 +24,7 @@ public class Post{
     [DataMember] public int UserId{get;set;}
     [DataMember] public string Title{get;set;}
     [DataMember] public string Body{get;set;}
-    [DataMember] public Comment[] Comments{get;set;}
+    [DataMember] public List<Comment> Comments{get;set;}
 }
 [DataContract]
 public class Comment{
