@@ -24,28 +24,16 @@ namespace DaoParser {
             _resultSetIdx  = resultSetIdx;
         }
 
-        public ParserSettings<U> IncludeList<U, TKey>(
-                Expression<Func<T, U[]>> listProp, 
+        public ParserSettings<U> Include<TProp, U, TKey>(
+                Expression<Func<T, TProp>> prop, 
                 Expression<Func<T, TKey>> foreign,
                 Expression<Func<U, TKey>> primary, 
-                int resultSetIdx) where U:new(){
-            var member = (MemberExpression)listProp.Body;
-            var prop = (PropertyInfo)member.Member;
-            _resolvers[prop] = CreateResolver(listProp, foreign, primary, resultSetIdx);
-            var childSettings = new ParserSettings<U>(resultSetIdx);
-            _includes.Add(childSettings); //TODO: if they go nested then overlaps are possible!!!
-            return childSettings;
-        }
-
-        public ParserSettings<U> IncludeSingle<U, TKey>(
-                Expression<Func<T, U>> prop, 
-                Expression<Func<T, TKey>> foreign,
-                Expression<Func<U, TKey>> primary, 
-                int resultSetIdx) where U:new(){
-            // It's basically the same as IncludeList excepting Expression argument. Need reduce duplication
+                Func<IEnumerable<U>, TProp> convertToPropertyValue,
+                int resultSetIdx) where U:new()
+        {
             var member = (MemberExpression)prop.Body;
             var propInfo = (PropertyInfo)member.Member;
-            _resolvers[propInfo] = CreateResolver(prop, foreign, primary, resultSetIdx);
+            _resolvers[propInfo] = CreateResolver(prop, foreign, primary, convertToPropertyValue, resultSetIdx);
             var childSettings = new ParserSettings<U>(resultSetIdx);
             _includes.Add(childSettings); //TODO: if they go nested then overlaps are possible!!!
             return childSettings;
@@ -78,38 +66,22 @@ namespace DaoParser {
             return readers;
         }
 
-        IIncludeResolver<T> CreateResolver<U, TKey>(
-                Expression<Func<T, U[]>> listProp, 
+        IIncludeResolver<T> CreateResolver<TProp, U, TKey>(
+                Expression<Func<T, TProp>> prop, 
                 Expression<Func<T, TKey>> foreign,
-                Expression<Func<U, TKey>> primary, int resultSetIdx){
-        
-            var param = Expression.Parameter(typeof(U[]));
-            return new IncludeResolver<T, U[], U, TKey>(
-                Expression.Lambda<Action<T, U[]>>(
-                    Expression.Assign(listProp.Body, param), 
-                    new ParameterExpression[]{listProp.Parameters[0], param}).Compile(),
+                Expression<Func<U, TKey>> primary, 
+                Func<IEnumerable<U>, TProp> convertToPropertyValue,
+                int resultSetIdx){
+            var param = Expression.Parameter(typeof(TProp));
+            return new IncludeResolver<T, TProp, U, TKey>(
+                Expression.Lambda<Action<T, TProp>>(
+                    Expression.Assign(prop.Body, param), 
+                    new ParameterExpression[]{prop.Parameters[0], param}).Compile(),
                 foreign.Compile(),
                 primary.Compile(),
-                children => children.ToArray(),
+                convertToPropertyValue,
                 resultSetIdx);
         }
-
-        IIncludeResolver<T> CreateResolver<U, TKey>(
-                Expression<Func<T, U>> listProp, 
-                Expression<Func<T, TKey>> foreign,
-                Expression<Func<U, TKey>> primary, int resultSetIdx){
-        
-            var param = Expression.Parameter(typeof(U));
-            return new IncludeResolver<T, U, U, TKey>(
-                Expression.Lambda<Action<T, U>>(
-                    Expression.Assign(listProp.Body, param), 
-                    new ParameterExpression[]{listProp.Parameters[0], param}).Compile(),
-                foreign.Compile(),
-                primary.Compile(),
-                children => children.Single(),
-                resultSetIdx);
-        }
-
 
         IPropertySetterTemplate<T> CreateSetterTemplate(PropertyInfo prop){
             var propType = prop.PropertyType;
@@ -309,6 +281,50 @@ namespace DaoParser {
             foreach(var resolver in _resolvers){
                 resolver.SetProperty(rows, resultSets);
             }
+        }
+    }
+
+    public static class ParserSettingsExtensions{
+        // Due to C# limitations we have to specify separate conversion for each collection type.
+        public static ParserSettings<U> IncludeList<T, U, TKey>(
+                this ParserSettings<T> self,
+                Expression<Func<T, List<U>>> listProp, 
+                Expression<Func<T, TKey>> foreign,
+                Expression<Func<U, TKey>> primary, 
+                int resultSetIdx) 
+                    where T:new()
+                    where U:new(){
+            return self.Include<List<U>, U, TKey>(listProp, foreign, primary, 
+                        children => {
+                            var collection = new List<U>();
+                            foreach(var item in children){
+                                collection.Add(item);
+                            }
+                            return collection;
+                        },
+                        resultSetIdx);
+        }
+
+        public static ParserSettings<U> IncludeList<T, U, TKey>(
+                this ParserSettings<T> self,
+                Expression<Func<T, U[]>> listProp, 
+                Expression<Func<T, TKey>> foreign,
+                Expression<Func<U, TKey>> primary, 
+                int resultSetIdx) 
+                    where T:new()
+                    where U:new() {
+            return self.Include<U[], U, TKey>(listProp, foreign, primary, c => c.ToArray(), resultSetIdx);
+        }
+
+        public static ParserSettings<U> IncludeSingle<T, U, TKey>(
+                this ParserSettings<T> self,
+                Expression<Func<T, U>> prop, 
+                Expression<Func<T, TKey>> foreign,
+                Expression<Func<U, TKey>> primary, 
+                int resultSetIdx) 
+                    where T:new()
+                    where U:new(){
+            return self.Include<U, U, TKey>(prop, foreign, primary, c => c.Single(), resultSetIdx);
         }
     }
 
