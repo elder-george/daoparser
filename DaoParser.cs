@@ -18,6 +18,7 @@ namespace DaoParser {
         bool _ignoreAllMisses;
 
         HashSet<PropertyInfo> _ignores = new HashSet<PropertyInfo>();
+        IDictionary<PropertyInfo, string> _renames = new Dictionary<PropertyInfo, string>();
         int _resultSetIdx;
 
         public ParserSettings(int resultSetIdx){
@@ -48,15 +49,23 @@ namespace DaoParser {
             _ignores.Add((PropertyInfo)member.Member);
         }
 
+        public void Rename<U>(Expression<Func<T,U>> propExpr, string actualColumnName){
+            var member = (MemberExpression) propExpr.Body;
+            _renames.Add((PropertyInfo)member.Member, actualColumnName);
+        }
+
         public IEnumerable<IEntityReaderTemplate> CreateReaderTemplates(){
             var readers = new List<IEntityReaderTemplate>();
             var setters = new List<IPropertySetterTemplate<T>>();
             var resolvers = new List<IIncludeResolver<T>>();
+            string actualColumnName;
             foreach(var prop in typeof(T).GetProperties()){
                 if (_resolvers.ContainsKey(prop)){
                     resolvers.Add(_resolvers[prop]);
+                } else if (_renames.TryGetValue(prop, out actualColumnName)){
+                    setters.Add(CreateSetterTemplate(prop, actualColumnName));
                 } else if (!_ignores.Contains(prop)){
-                    setters.Add(CreateSetterTemplate(prop));
+                    setters.Add(CreateSetterTemplate(prop, prop.Name));
                 }
             }
             readers.Add(new EntityReaderTemplate<T>(resolvers, setters, _resultSetIdx));
@@ -83,7 +92,7 @@ namespace DaoParser {
                 resultSetIdx);
         }
 
-        IPropertySetterTemplate<T> CreateSetterTemplate(PropertyInfo prop){
+        IPropertySetterTemplate<T> CreateSetterTemplate(PropertyInfo prop, string actualColumnName){
             var propType = prop.PropertyType;
             var actionType = typeof(Action<,>).MakeGenericType(typeof(T), propType);
             var set = Delegate.CreateDelegate(actionType,prop.GetSetMethod());
@@ -111,7 +120,7 @@ namespace DaoParser {
                         new object[]{ 
 //                        setMethod.Compile(), 
                         set,
-                        convert, prop.Name, _ignoreAllMisses}, 
+                        convert, actualColumnName, _ignoreAllMisses}, 
                         null);
         }
 

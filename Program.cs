@@ -58,7 +58,7 @@ class Program{
             conn.ExecuteNonQuery("CREATE TABLE User ( UserId int, Name varchar(100))");
             conn.ExecuteNonQuery("CREATE TABLE Post ( PostId int, UserId int, Title varchar(100), Body varchar(1000))");
             conn.ExecuteNonQuery("CREATE TABLE Comment ( CommentId int, PostId int, UserId int, Title varchar(100), Body varchar(1000))");
-            conn.ExecuteNonQuery("CREATE TABLE Avatar ( AvatarId int, UserId int, Width int, Height int, Uri varchar(1000))");
+            conn.ExecuteNonQuery("CREATE TABLE Avatar ( AvatarId int, UserId int, Width int, Height int, Url varchar(1000))");
 
             conn.ExecuteNonQuery("INSERT INTO User Values (1, 'User1'), (2, 'User2')");
 
@@ -92,11 +92,11 @@ INSERT INTO Post Values
                                 .IncludeList(p => p.Comments, p=>p.PostId, c=>c.PostId, 2);
                             _.IncludeSingle(u => u.Avatar,
                                             u => u.UserId,
-                                            a => a.UserId, 3);
+                                            a => a.UserId, 3).Rename(a => a.Uri, "Url");
                                     //.IncludeList(c => c.Authors, c=>c.UserId, u=>u.UserId, 0)
                                     });
             tm.MarkEnd("Create Parser 1");
-            var avatarParser = new Parser<Avatar>( _ => {});
+            var avatarParser = new Parser<Avatar>( _ => _.Rename(a => a.Uri, "Url"));
             tm.MarkEnd("Create Parser 2");
 
 
@@ -109,7 +109,7 @@ INSERT INTO Post Values
 SELECT UserId, Name FROM User;
 SELECT PostId, UserId, title, body FROM Post;
 SELECT CommentId, PostId, UserId, Title, Body FROM Comment;
-SELECT UserId, Width, Height, Uri from Avatar;
+SELECT UserId, Width, Height, Url from Avatar;
                         ")){
                         tm.MarkEnd("ExecuteReader 1-"+i);
                         var usersWithPosts = usersParser.Parse(rdr).ToArray();
