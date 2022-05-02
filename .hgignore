@@ -1,8 +1,0 @@
-syntax:glob
-**.pdb
-**.dll
-**.exe
-**.pdb
-**.nupkg
-**.ps1
-**.db3
